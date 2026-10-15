@@ -599,36 +599,38 @@ function TraceSummary({ text }) {
 
 function PillarTable({ chart }) {
   return (
-    <table className="pillar-table">
-      <thead>
-        <tr>
-          <th scope="col">柱位</th>
-          <th scope="col">干支</th>
-          <th scope="col">天干十神</th>
-          <th scope="col">纳音</th>
-          <th scope="col">地支藏干</th>
-        </tr>
-      </thead>
-      <tbody>
-        {chart.pillars.map((pillar) => (
-          <tr key={pillar.label}>
-            <th scope="row">{pillar.label}</th>
-            <td>
-              <span className="gz">
-                <b style={{ color: ELEMENT_COLOR[pillar.element] }}>{pillar.gan}</b>
-                <b style={{ color: ELEMENT_COLOR[pillar.branchElement] }}>{pillar.zhi}</b>
-              </span>
-              <span className="gz-elements">
-                {pillar.element}/{pillar.branchElement}
-              </span>
-            </td>
-            <td>{pillar.tenGod}</td>
-            <td>{pillar.naYin}</td>
-            <td className="hidden-cell">{pillar.hidden}</td>
+    <div className="table-scroll">
+      <table className="pillar-table">
+        <thead>
+          <tr>
+            <th scope="col">柱位</th>
+            <th scope="col">干支</th>
+            <th scope="col">天干十神</th>
+            <th scope="col">纳音</th>
+            <th scope="col">地支藏干</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {chart.pillars.map((pillar) => (
+            <tr key={pillar.label}>
+              <th scope="row">{pillar.label}</th>
+              <td>
+                <span className="gz">
+                  <b style={{ color: ELEMENT_COLOR[pillar.element] }}>{pillar.gan}</b>
+                  <b style={{ color: ELEMENT_COLOR[pillar.branchElement] }}>{pillar.zhi}</b>
+                </span>
+                <span className="gz-elements">
+                  {pillar.element}/{pillar.branchElement}
+                </span>
+              </td>
+              <td data-label="天干十神">{pillar.tenGod}</td>
+              <td data-label="纳音">{pillar.naYin}</td>
+              <td className="hidden-cell" data-label="地支藏干">{pillar.hidden}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

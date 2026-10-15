@@ -2,6 +2,7 @@
   display: grid;
   grid-template-columns: 268px minmax(0, 1fr);
   min-height: 100vh;
+  min-height: 100dvh; /* 移动端浏览器地址栏收起/展开时不跳动 */
 }
 
 /* ---------- 侧栏 ---------- */
@@ -569,6 +570,18 @@
   white-space: nowrap;
 }
 
+/* 窄屏放不下时先横向滚动，手机断点下会改用卡片式（见媒体查询） */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.table-scroll .pillar-table {
+  min-width: 460px;
+}
+
 .gz {
   display: flex;
   gap: 4px;
@@ -906,27 +919,267 @@
   }
 }
 
+/* 平板 / 窄窗口：侧栏横排，记录列表可滚动 */
 @media (max-width: 860px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar {
-    gap: 16px;
+    gap: 12px;
+    padding: 14px 16px 18px;
+  }
+
+  .nav {
+    flex-direction: row;
+  }
+
+  .nav-item {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  .side-block {
+    order: 3;
   }
 
   .side-note {
-    margin-top: 6px;
+    order: 4;
+  }
+
+  .history {
+    max-height: 156px;
+    overflow-y: auto;
+  }
+
+  .side-note {
+    margin-top: 0;
+    padding-top: 12px;
   }
 
   .topbar,
   .content {
-    padding-left: 18px;
-    padding-right: 18px;
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   .input-actions {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: stretch;
+  }
+
+  .input-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* 手机：16px 基准字号（低于它 iOS 聚焦会缩放页面）、更大的触控目标 */
+@media (max-width: 640px) {
+  .topbar {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .topbar-title h1 {
+    font-size: 17px;
+  }
+
+  .topbar-sub {
+    font-size: 11.5px;
+  }
+
+  .status {
+    gap: 6px;
+  }
+
+  .chip {
+    font-size: 11.5px;
+    padding: 3px 8px;
+  }
+
+  .content {
+    padding: 14px 14px 34px;
+    gap: 14px;
+  }
+
+  .card {
+    padding: 16px 14px;
+    border-radius: 14px;
+  }
+
+  .card-head h2 {
+    font-size: 15px;
+  }
+
+  .brand-text strong {
+    font-size: 17px;
+  }
+
+  .seg {
+    display: flex;
+    width: 100%;
+  }
+
+  .seg-btn {
+    flex: 1 1 0;
+    font-size: 15px;
+  }
+
+  .fields,
+  .settings .fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .input {
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+
+  .pillar-input {
+    font-size: 20px;
+  }
+
+  .btn {
+    font-size: 15px;
+    padding: 11px 14px;
+  }
+
+  .input-foot {
+    gap: 12px;
+  }
+
+  .hint,
+  .side-empty,
+  .side-note {
+    font-size: 12px;
+  }
+
+  .pillar-table {
+    font-size: 12.5px;
+  }
+
+  .pillar-table th,
+  .pillar-table td {
+    padding: 9px 7px;
+  }
+
+  /* 手机上命盘表格改为卡片式：不再横向滚动，信息完整可见 */
+  .table-scroll {
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+  }
+
+  .table-scroll .pillar-table {
+    min-width: 0;
+  }
+
+  .pillar-table,
+  .pillar-table thead,
+  .pillar-table tbody,
+  .pillar-table tr,
+  .pillar-table th,
+  .pillar-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .pillar-table thead {
+    display: none;
+  }
+
+  .pillar-table tbody tr {
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--cream);
+  }
+
+  .pillar-table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .pillar-table tbody th {
+    padding: 0 0 8px;
+    border-bottom: 1px dashed var(--line);
+    font-size: 12.5px;
+    letter-spacing: 1px;
+    color: var(--ink-faint);
+  }
+
+  .pillar-table td {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 4px 0;
+    border-bottom: none;
+    font-size: 13.5px;
+  }
+
+  .pillar-table td::before {
+    content: attr(data-label);
+    flex: 0 0 62px;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+  }
+
+  .pillar-table td:first-of-type {
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 0 8px;
+  }
+
+  .pillar-table td:first-of-type::before {
+    content: none;
+  }
+
+  .pillar-table .gz {
+    font-size: 24px;
+  }
+
+  .pillar-table .gz-elements {
+    margin-top: 0;
+  }
+
+  .matches,
+  .guide-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trace-item {
+    padding: 10px 11px;
+    gap: 8px;
+  }
+
+  .trace-type {
+    font-size: 11px;
+    padding: 2px 6px;
+  }
+
+  .markdown {
+    font-size: 14.5px;
+  }
+
+  .markdown h2 {
+    font-size: 15px;
+  }
+
+  .markdown ul,
+  .markdown ol {
+    padding-left: 18px;
+  }
+
+  .meta-line {
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .guide-actions .btn,
+  .card-actions .btn {
+    width: 100%;
+    justify-content: center;
   }
 }
