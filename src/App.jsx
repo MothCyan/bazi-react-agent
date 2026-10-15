@@ -21,6 +21,7 @@ import {
   Trash2,
   TrendingUp,
   Users,
+  Zap,
 } from 'lucide-react'
 import { getConfig, runAnalysis, saveConfig, testConnection } from './api.js'
 import './App.css'
@@ -34,6 +35,7 @@ const ELEMENT_COLOR = {
   水: '#3f6f96',
 }
 const HISTORY_KEY = 'bazi.history.v1'
+const ENGINE_KEY = 'bazi.engine'
 const DEMO_FORM = { mode: 'birth', name: '示例', date: '1990-05-20', time: '10:00', pillars: ['', '', '', ''] }
 const EMPTY_FORM = { mode: 'birth', name: '', date: '', time: '', pillars: ['', '', '', ''] }
 
@@ -66,6 +68,23 @@ function writeHistory(list) {
   }
 }
 
+/** 分析引擎：local 只用服务端规则与工具，agent 走 ReAct + 模型 */
+function readEngine() {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === 'local' ? 'local' : 'agent'
+  } catch {
+    return 'agent'
+  }
+}
+
+function writeEngine(engine) {
+  try {
+    localStorage.setItem(ENGINE_KEY, engine)
+  } catch {
+    /* 存储不可用时只在本次会话内生效 */
+  }
+}
+
 function buildPayload(form) {
   if (form.mode === 'manual') {
     return { mode: 'manual', pillars: form.pillars.map((pillar) => pillar.trim()) }
@@ -85,6 +104,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState(readHistory)
+  const [engine, setEngine] = useState(readEngine)
   const [config, setConfig] = useState(null)
   const [configError, setConfigError] = useState('')
   const resultRef = useRef(null)
@@ -108,7 +128,7 @@ export default function App() {
     setError('')
     setResult(null)
     try {
-      const data = await runAnalysis(payload)
+      const data = await runAnalysis({ ...payload, engine })
       setResult(data)
       setHistory((previous) => {
         const entry = { id: `${Date.now()}`, ...payload, title: formTitle(payload) }
@@ -122,7 +142,12 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [engine])
+
+  const selectEngine = (next) => {
+    setEngine(next)
+    writeEngine(next)
+  }
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -227,9 +252,15 @@ export default function App() {
             <p className="topbar-sub">ReAct Agent · 工具驱动的排盘、命理分析与同八字名人检索</p>
           </div>
           <div className="status">
-            <span className={result?.mode === 'llm' ? 'chip chip-live' : 'chip'}>
-              {result?.mode === 'llm' ? 'LLM 模式' : '规则演示模式'}
+            <span className={engine === 'local' ? 'chip' : 'chip chip-live'}>
+              {engine === 'local' ? <Zap size={13} /> : <Sparkles size={13} />}
+              {engine === 'local' ? '本地模式' : 'Agent 模式'}
             </span>
+            {result && (
+              <span className="chip chip-muted">
+                {result.mode === 'llm' ? '模型生成' : result.engine === 'local' ? '本地规则生成' : '规则回退生成'}
+              </span>
+            )}
             <span className="chip chip-muted">
               <Cpu size={13} /> {config?.model || '未配置模型'}
             </span>
@@ -249,22 +280,49 @@ export default function App() {
           ) : (
             <>
               <form className="card input-card" onSubmit={handleSubmit}>
-                <div className="seg" role="group" aria-label="输入方式">
-                  <button
-                    type="button"
-                    className={form.mode === 'birth' ? 'seg-btn is-active' : 'seg-btn'}
-                    onClick={() => setForm((previous) => ({ ...previous, mode: 'birth' }))}
-                  >
-                    出生信息排盘
-                  </button>
-                  <button
-                    type="button"
-                    className={form.mode === 'manual' ? 'seg-btn is-active' : 'seg-btn'}
-                    onClick={() => setForm((previous) => ({ ...previous, mode: 'manual' }))}
-                  >
-                    直接输入四柱
-                  </button>
+                <div className="input-head">
+                  <div className="seg" role="group" aria-label="输入方式">
+                    <button
+                      type="button"
+                      className={form.mode === 'birth' ? 'seg-btn is-active' : 'seg-btn'}
+                      onClick={() => setForm((previous) => ({ ...previous, mode: 'birth' }))}
+                    >
+                      出生信息排盘
+                    </button>
+                    <button
+                      type="button"
+                      className={form.mode === 'manual' ? 'seg-btn is-active' : 'seg-btn'}
+                      onClick={() => setForm((previous) => ({ ...previous, mode: 'manual' }))}
+                    >
+                      直接输入四柱
+                    </button>
+                  </div>
+
+                  <div className="seg seg-engine" role="group" aria-label="分析引擎">
+                    <button
+                      type="button"
+                      className={engine === 'local' ? 'seg-btn is-active' : 'seg-btn'}
+                      onClick={() => selectEngine('local')}
+                    >
+                      <Zap size={14} /> 本地模式
+                    </button>
+                    <button
+                      type="button"
+                      className={engine === 'agent' ? 'seg-btn is-active' : 'seg-btn'}
+                      onClick={() => selectEngine('agent')}
+                    >
+                      <Sparkles size={14} /> Agent 模式
+                    </button>
+                  </div>
                 </div>
+
+                <p className="engine-note">
+                  {engine === 'local'
+                    ? '本地模式：不调用模型，排盘、名人检索与报告全部由服务端规则即时完成，无需配置密钥。'
+                    : config && !config.hasKey
+                      ? 'Agent 模式：未配置模型密钥，本次会直接使用本地规则报告；可在「模型设置」中配置支持 tools 的模型。'
+                      : 'Agent 模式：由模型自主选择工具并撰写报告，调用失败或超时时自动回退本地规则报告。'}
+                </p>
 
                 {form.mode === 'birth' ? (
                   <div className="fields">
@@ -353,7 +411,7 @@ export default function App() {
                 </div>
               )}
 
-              {loading && <LoadingPanel />}
+              {loading && <LoadingPanel engine={engine} />}
 
               <div ref={resultRef}>
                 {result ? (
@@ -361,6 +419,7 @@ export default function App() {
                 ) : (
                   !loading && (
                     <GuideDashboard
+                      engine={engine}
                       onDemo={handleDemo}
                       onOpenSettings={() => setView('settings')}
                       modelReady={Boolean(config?.hasKey)}
@@ -385,12 +444,13 @@ function Field({ label, children }) {
   )
 }
 
-function LoadingPanel() {
+function LoadingPanel({ engine }) {
+  const local = engine === 'local'
   return (
     <section className="card loading" aria-live="polite">
       <header className="card-head">
         <h2>
-          <Loader2 size={17} className="spin" /> Agent 正在运行
+          {local ? <Zap size={17} /> : <Loader2 size={17} className="spin" />} {local ? '本地规则引擎运行中' : 'Agent 正在运行'}
         </h2>
       </header>
       <ol className="steps">
@@ -401,15 +461,19 @@ function LoadingPanel() {
           <CircleDot size={15} /> 检索本地名人库并比对柱位
         </li>
         <li className="step is-active">
-          <CircleDot size={15} /> 生成 Markdown 分析报告
+          <CircleDot size={15} /> {local ? '套用规则模板生成 Markdown 报告' : '模型根据工具结果撰写 Markdown 报告'}
         </li>
       </ol>
-      <p className="hint">未配置模型时使用规则报告；配置支持 tools 的模型后会进行多轮工具调用。模型响应过慢或不可用时最多等待约 90 秒，超时会自动回退到规则报告。</p>
+      <p className="hint">
+        {local
+          ? '本地模式不调用任何模型，通常在一秒内返回结果。'
+          : '未配置模型时使用规则报告；配置支持 tools 的模型后会进行多轮工具调用。模型响应过慢或不可用时最多等待约 90 秒，超时会自动回退到规则报告。'}
+      </p>
     </section>
   )
 }
 
-function GuideDashboard({ onDemo, onOpenSettings, modelReady }) {
+function GuideDashboard({ engine, onDemo, onOpenSettings, modelReady }) {
   return (
     <div className="guide">
       <section className="card">
@@ -424,8 +488,10 @@ function GuideDashboard({ onDemo, onOpenSettings, modelReady }) {
             <span>填写公历生日与出生时间，或直接输入已知的四柱干支。</span>
           </li>
           <li>
-            <strong>2 · Agent 调用工具</strong>
-            <span>排盘、名人检索、命理知识查询都由工具完成，模型不参与推算四柱。</span>
+            <strong>2 · 选择分析引擎</strong>
+            <span>
+              本地模式不调用模型，用服务端工具与规则模板秒级出报告；Agent 模式由模型自主选择工具并撰写，失败时回退规则。
+            </span>
           </li>
           <li>
             <strong>3 · 阅读报告与轨迹</strong>
@@ -434,7 +500,7 @@ function GuideDashboard({ onDemo, onOpenSettings, modelReady }) {
         </ol>
         <div className="guide-actions">
           <button type="button" className="btn btn-primary" onClick={onDemo}>
-            <Play size={15} /> 体验 1990-05-20 示例
+            <Play size={15} /> 体验 1990-05-20 示例（{engine === 'local' ? '本地模式' : 'Agent 模式'}）
           </button>
           <button type="button" className="btn btn-ghost" onClick={onOpenSettings}>
             <Settings size={15} /> {modelReady ? '查看模型配置' : '配置 LLM（可选）'}
@@ -475,7 +541,11 @@ function ResultView({ result }) {
       {result.fallback && (
         <div className="alert alert-soft" role="status">
           <AlertTriangle size={17} />
-          <span>模型调用失败，已回退到本地规则报告：{result.fallback.reason}</span>
+          <span>
+            {result.fallback.kind === 'no-key'
+              ? '未配置模型密钥，本次使用本地规则报告。可在「模型设置」中配置模型后重试。'
+              : `模型调用失败，已回退到本地规则报告：${result.fallback.reason}`}
+          </span>
         </div>
       )}
       <section className="card">
@@ -547,11 +617,15 @@ function ResultView({ result }) {
       <section className="card">
         <header className="card-head">
           <h2>
-            <Cpu size={17} /> Agent 工具轨迹
+            <Cpu size={17} /> {result.engine === 'local' ? '本地规则轨迹' : 'Agent 工具轨迹'}
           </h2>
           <span className="chip chip-muted">共 {result.trace.length} 条</span>
         </header>
-        <p className="hint">仅展示动作摘要与工具返回结果，不展示模型内部思维链。</p>
+        <p className="hint">
+          {result.engine === 'local'
+            ? '本地模式下按固定顺序执行同一批工具，不展示任何模型思维链。'
+            : '仅展示动作摘要与工具返回结果，不展示模型内部思维链。'}
+        </p>
         <ol className="trace">
           {result.trace.map((item, index) => (
             <li key={`${item.type}-${item.tool || ''}-${index}`} className={`trace-item trace-${item.type}`}>
@@ -571,7 +645,9 @@ function ResultView({ result }) {
             <Sparkles size={17} /> 分析报告
           </h2>
           <div className="card-actions">
-            <span className="chip chip-muted">{result.mode === 'llm' ? '模型生成' : '规则生成'}</span>
+            <span className="chip chip-muted">
+              {result.mode === 'llm' ? '模型生成' : result.engine === 'local' ? '本地规则生成' : '规则回退生成'}
+            </span>
             <button type="button" className="btn btn-ghost" onClick={exportReport}>
               <Download size={15} /> 导出 Markdown
             </button>

@@ -17,20 +17,29 @@ const tools = [
   {type:'function',function:{name:'search_celebrities',description:'从有生日来源的本地名人库检索对应柱相同的候选，未知时辰不做完整匹配。',parameters:{type:'object',properties:{},additionalProperties:false}}},
   {type:'function',function:{name:'lookup_knowledge',description:'查询传统命理基础知识与方法局限。',parameters:{type:'object',properties:{topic:{type:'string',enum:Object.keys(knowledge)}},required:['topic'],additionalProperties:false}}},
 ]
-function demoReport(chart,matches) {
-  return `## 命盘概览\n你的日主为 **${chart.dayMaster}**，四柱为 **${chart.pillars.map(p=>p.gan+p.zhi).join(' · ')}**。\n\n## 五行与十神\n表层八字计数：${Object.entries(chart.elements).map(([k,v])=>`${k} ${v}`).join('、')}。此统计没有月令和藏干权重，不能直接判断身强身弱或喜用神。\n\n${knowledge.十神}\n\n## 名人参照\n${matches.length ? `本地数据库找到 ${matches.length} 位至少有一柱对应相同的人物。最高匹配 ${matches[0].matchCount} 柱：${matches[0].name}。` : '本地小型数据库未找到对应柱相同的人物，这不代表世界上不存在。'}所有种子人物的时辰均未核实，因此本次没有可确认的四柱完全匹配。\n\n## 阅读建议\n${knowledge.月令}\n\n当前为**无需 LLM 的规则演示模式**。配置支持工具调用的模型后，可以运行完整 ReAct 循环，结合工具结果生成分析。传统命理仅供文化学习与娱乐，不是科学预测，不应用于医疗、投资或重大人生决定。`
+function demoReport(chart,matches,engine='agent') {
+  const note = engine === 'local'
+    ? '当前为**本地规则模式**：不调用任何模型，排盘、名人匹配与知识条目全部来自服务端历法与本地数据集，报告由规则模板套写。切换到 Agent 模式后，模型会自主选择同一批工具并撰写报告。'
+    : '当前为**无需 LLM 的规则演示模式**。配置支持工具调用的模型后，可以运行完整 ReAct 循环，结合工具结果生成分析。'
+  return `## 命盘概览\n你的日主为 **${chart.dayMaster}**，四柱为 **${chart.pillars.map(p=>p.gan+p.zhi).join(' · ')}**。\n\n## 五行与十神\n表层八字计数：${Object.entries(chart.elements).map(([k,v])=>`${k} ${v}`).join('、')}。此统计没有月令和藏干权重，不能直接判断身强身弱或喜用神。\n\n${knowledge.十神}\n\n## 名人参照\n${matches.length ? `本地数据库找到 ${matches.length} 位至少有一柱对应相同的人物。最高匹配 ${matches[0].matchCount} 柱：${matches[0].name}。` : '本地小型数据库未找到对应柱相同的人物，这不代表世界上不存在。'}所有种子人物的时辰均未核实，因此本次没有可确认的四柱完全匹配。\n\n## 阅读建议\n${knowledge.月令}\n\n${note}传统命理仅供文化学习与娱乐，不是科学预测，不应用于医疗、投资或重大人生决定。`
 }
-function demoPayload(chart,matches) {
+function demoPayload(chart,matches,engine='agent') {
   const trace=[]
   for(const [tool,summary] of [['calculate_bazi',chart.pillars.map(p=>p.gan+p.zhi).join(' / ')],['search_celebrities',`找到 ${matches.length} 位部分匹配人物，完整匹配 0 位`],['lookup_knowledge','已读取月令、十神与匹配边界']]) { trace.push({type:'action',tool,summary:'执行本地规则工具'},{type:'observation',tool,summary}) }
-  trace.push({type:'final',summary:'规则报告已生成；配置 LLM 后启用自主工具选择'})
-  return {chart,matches,trace,report:demoReport(chart,matches),mode:'demo'}
+  trace.push({type:'final',summary: engine === 'local' ? '本地规则模式：未调用模型，报告由规则模板生成' : '规则报告已生成；配置 LLM 后启用自主工具选择'})
+  return {chart,matches,trace,report:demoReport(chart,matches,engine),mode:'demo',engine}
 }
 
+/** 可选分析引擎：local 完全不调用模型，agent 走 ReAct 循环 */
+export const ENGINES = ['local', 'agent']
+
 export async function analyze(input,config,requestCompletion=completion,options={}) {
+  const engine = options.engine === 'local' ? 'local' : 'agent'
   const chart = buildChart(input), matches=findMatches(chart), trace=[]
+  // 本地模式：排盘、名人检索与知识条目仍然走同一批工具，但不接触任何模型
+  if (engine === 'local') return demoPayload(chart,matches,'local')
   if (!config.apiKey && !/localhost|127\.0\.0\.1|\[::1\]/.test(new URL(config.baseUrl).hostname)) {
-    return demoPayload(chart,matches)
+    return {...demoPayload(chart,matches,'agent'),fallback:{kind:'no-key',reason:'未配置模型密钥，已使用本地规则报告'}}
   }
   const deadline=options.deadlineMs ?? ANALYZE_DEADLINE_MS
   const startedAt=Date.now()
@@ -50,7 +59,7 @@ export async function analyze(input,config,requestCompletion=completion,options=
       }
       if (!message.content?.trim()) throw new Error('模型未返回报告内容')
       trace.push({type:'final',summary:'已根据工具观察结果生成分析报告'})
-      return {chart,matches,trace,report:message.content,mode:'llm'}
+      return {chart,matches,trace,report:message.content,mode:'llm',engine}
     }
     if(message.tool_calls.length>8) throw new Error('模型单轮工具调用数量超出限制')
     messages.push({role:'assistant',content:message.content || null,tool_calls:message.tool_calls})
@@ -75,13 +84,14 @@ export async function analyze(input,config,requestCompletion=completion,options=
   } catch(error) {
     // 模型不可用（超时 / 鉴权失败 / 不支持 tools）时不能让整站卡死：如实说明并回退规则报告
     const reason=error?.message || '未知错误'
-    const fallback=demoPayload(chart,matches)
+    const fallback=demoPayload(chart,matches,'agent')
     return {
       chart,matches,
       trace:[...trace,{type:'observation',tool:'llm_fallback',summary:`模型调用失败，已改用本地规则报告：${reason}`},...fallback.trace],
       report:fallback.report,
       mode:'demo',
-      fallback:{reason},
+      engine,
+      fallback:{kind:'error',reason},
     }
   }
 }

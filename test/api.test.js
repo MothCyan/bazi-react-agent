@@ -80,6 +80,43 @@ test('并发分析不会被错误地串行阻塞', async () => {
   assert.notEqual(a.chart.solar, b.chart.solar)
 })
 
+test('本地模式不调用模型：直接返回本地规则报告', async () => {
+  const response = await post('/api/analyze', {
+    mode: 'birth',
+    date: '1990-05-20',
+    time: '10:00',
+    engine: 'local',
+  })
+  assert.equal(response.status, 200)
+  const data = await response.json()
+  assert.equal(data.engine, 'local')
+  assert.equal(data.mode, 'demo')
+  assert.equal(data.fallback, undefined)
+  assert.match(data.report, /本地规则模式/)
+  assert.ok(data.trace.at(-1).summary.includes('未调用模型'))
+})
+
+test('未指定引擎时默认为 agent，未配置密钥则按无密钥回退', async () => {
+  const response = await post('/api/analyze', { mode: 'birth', date: '1990-05-20', time: '10:00' })
+  assert.equal(response.status, 200)
+  const data = await response.json()
+  assert.equal(data.engine, 'agent')
+  assert.equal(data.mode, 'demo')
+  assert.equal(data.fallback.kind, 'no-key')
+  assert.match(data.report, /规则演示模式/)
+})
+
+test('非法的引擎取值回落为 agent 而不是报错', async () => {
+  const response = await post('/api/analyze', {
+    mode: 'birth',
+    date: '1990-05-20',
+    time: '10:00',
+    engine: 'whatever',
+  })
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).engine, 'agent')
+})
+
 test('模型端点不可用时接口回退规则报告而不是报错', async () => {
   // 指向一个不会响应的本机端口：真实模型调用必然失败，应回退规则报告
   await fetch(`${origin}/api/config`, {

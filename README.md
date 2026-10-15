@@ -13,6 +13,7 @@
 | 出生信息排盘 | 公历生日 + 出生时间，由 `lunar-javascript` 计算四柱、纳音、藏干、十神 |
 | 四柱直输 | 已知干支时可直接输入，服务端用五虎遁 / 五鼠遁校验干支组合是否自洽 |
 | ReAct Agent | 模型自主选择工具 → 读取观察结果 → 生成 Markdown 报告，全过程可查看工具轨迹 |
+| 双分析引擎 | 页面上可切换**本地模式**与 **Agent 模式**：本地模式不调用任何模型（166ms 出报告），Agent 模式走 ReAct 循环；选择记在浏览器本地 |
 | 名人对照 | 16 位有公历生日来源的名人，按柱位比对，严格区分"完整匹配"与"部分匹配" |
 | 五行分布 | 表层八字五行计数可视化（明确标注不等于旺衰 / 喜用神） |
 | LLM 可配置 | 网页端配置任意 OpenAI 兼容接口（地址、模型、密钥、温度、最大轮数） |
@@ -105,7 +106,20 @@ npm run lint       # oxlint 静态检查
 - 若 Base URL 是公网地址且未配置密钥，则自动使用规则演示模式，避免误向外部服务发请求。
 - 模型端点不可用时（超时、连接挂起、密钥无效、不支持 `tools`）不会把接口挂死：单次请求不超过 30 秒（`BAZI_LLM_TIMEOUT_MS`）、一次完整分析不超过 90 秒（`BAZI_ANALYZE_DEADLINE_MS`），超时后**回退到规则报告**，并在页面顶部与工具轨迹中说明失败原因（避免“看起来像没配好”）。
 
-## 6. ReAct Agent 工作流程
+## 6. 分析引擎与 ReAct 工作流程
+
+页面上的「分析引擎」开关决定报告由谁生成，**两种模式共用同一批工具与同一份排盘结果**，切换引擎不会改变四柱、十神、五行计数与名人匹配：
+
+| 引擎 | 是否调用模型 | 报告来源 | 典型耗时 | 适用场景 |
+| --- | --- | --- | --- | --- |
+| 本地模式 `engine=local` | 否（配置了密钥也不会请求） | 服务端规则模板 | 约 0.2 秒 | 课堂演示、无网络、没配密钥、只想看排盘与名人匹配 |
+| Agent 模式 `engine=agent` | 是（ReAct 循环） | 模型撰写的 Markdown | 视模型而定 | 想看模型如何选择工具并撰写分析 |
+
+- 本地模式返回 `engine: "local"`、`mode: "demo"`，**不带** `fallback` 字段（它不是降级，而是明确选择的模式）。
+- Agent 模式在未配置密钥 / 模型报错 / 超时时回退规则报告，返回 `mode: "demo"` 且带 `fallback: { kind: "no-key" | "error", reason }`，界面会如实说明回退原因。
+- 接口不传 `engine` 时默认为 `agent`，非法取值也回落为 `agent`（不报错）。
+
+Agent 模式的循环：
 
 ```mermaid
 flowchart TD
@@ -160,12 +174,13 @@ flowchart TD
 | PUT | `/api/config` | 保存配置；`apiKey` 留空表示保留原密钥，`clearKey: true` 表示清除 |
 | POST | `/api/config/test` | 用当前配置发起一次最小对话，验证连通性 |
 | POST | `/api/chart` | 只排盘并返回名人匹配（不调用模型） |
-| POST | `/api/analyze` | 完整流程：排盘 + Agent 分析，返回 `chart` / `matches` / `trace` / `report` / `mode`；模型不可用时 `mode` 回退为 `demo` 并附 `fallback.reason` |
+| POST | `/api/analyze` | 完整流程：排盘 + 分析，请求体可带 `engine: "local" | "agent"`（默认 `agent`），返回 `chart` / `matches` / `trace` / `report` / `engine` / `mode`；模型不可用时 `mode` 回退为 `demo` 并附 `fallback` |
 
 请求体示例：
 
 ```json
-{ "mode": "birth", "name": "张三", "date": "1990-05-20", "time": "10:00" }
+{ "mode": "birth", "name": "张三", "date": "1990-05-20", "time": "10:00", "engine": "agent" }
+{ "mode": "birth", "date": "1990-05-20", "time": "10:00", "engine": "local" }
 { "mode": "manual", "pillars": ["庚午", "辛巳", "乙酉", "辛巳"] }
 ```
 

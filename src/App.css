@@ -305,6 +305,39 @@
   font-weight: 500;
 }
 
+/* ---------- 分析引擎切换 ---------- */
+.input-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.input-head .seg {
+  margin-bottom: 0;
+}
+
+.seg-engine {
+  margin-left: auto;
+}
+
+.seg-engine .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 7px 13px;
+}
+
+.engine-note {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-faint);
+}
+
 .fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -1024,6 +1057,19 @@
   .seg-btn {
     flex: 1 1 0;
     font-size: 15px;
+  }
+
+  .input-head {
+    margin-bottom: 14px;
+  }
+
+  .seg-engine {
+    margin-left: 0;
+  }
+
+  .seg-engine .seg-btn {
+    justify-content: center;
+    font-size: 14px;
   }
 
   .fields,

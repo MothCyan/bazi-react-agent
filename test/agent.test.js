@@ -206,3 +206,67 @@ test('配置了本地模型端点时即使没有密钥也走 LLM 模式', async 
   assert.equal(result.mode, 'llm')
   assert.equal(completion.calls.length, 2)
 })
+
+test('本地模式完全不调用模型，直接生成规则报告', async () => {
+  let called = false
+  const result = await analyze(
+    input,
+    baseConfig,
+    async () => {
+      called = true
+      return { content: '不应被调用' }
+    },
+    { engine: 'local' },
+  )
+
+  assert.equal(called, false)
+  assert.equal(result.engine, 'local')
+  assert.equal(result.mode, 'demo')
+  assert.equal(result.fallback, undefined)
+  assert.match(result.report, /本地规则模式/)
+  assert.deepEqual(
+    result.chart.pillars.map((pillar) => pillar.gan + pillar.zhi),
+    ['庚午', '辛巳', '乙酉', '辛巳'],
+  )
+  assert.ok(result.trace.some((item) => item.type === 'action' && item.tool === 'search_celebrities'))
+  assert.ok(result.trace.at(-1).summary.includes('未调用模型'))
+})
+
+test('切换引擎不影响排盘与名人匹配结果', async () => {
+  const local = await analyze(
+    input,
+    baseConfig,
+    async () => {
+      throw new Error('本地模式不应访问模型')
+    },
+    { engine: 'local' },
+  )
+  const completion = scriptedCompletion([
+    { tool_calls: [openaiToolCall('calculate_bazi'), openaiToolCall('search_celebrities')] },
+    { content: '模型报告' },
+  ])
+  const agent = await analyze(input, baseConfig, completion)
+
+  assert.equal(agent.engine, 'agent')
+  assert.equal(agent.mode, 'llm')
+  assert.deepEqual(
+    local.chart.pillars.map((pillar) => pillar.gan + pillar.zhi),
+    agent.chart.pillars.map((pillar) => pillar.gan + pillar.zhi),
+  )
+  assert.deepEqual(local.matches.map((m) => m.name), agent.matches.map((m) => m.name))
+  assert.deepEqual(local.chart.elements, agent.chart.elements)
+})
+
+test('Agent 模式未配置密钥时标记为无密钥回退，不访问模型', async () => {
+  let called = false
+  const result = await analyze(input, { ...baseConfig, apiKey: '' }, async () => {
+    called = true
+    return { content: '不应被调用' }
+  })
+
+  assert.equal(called, false)
+  assert.equal(result.engine, 'agent')
+  assert.equal(result.mode, 'demo')
+  assert.equal(result.fallback.kind, 'no-key')
+  assert.match(result.report, /规则演示模式/)
+})

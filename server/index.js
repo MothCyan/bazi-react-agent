@@ -48,11 +48,13 @@ app.post('/api/analyze',async(req,res)=>{
   if(inFlight>=MAX_IN_FLIGHT) return res.status(429).json({error:'当前分析请求过多，请稍后重试'})
   inFlight+=1
   const startedAt=Date.now()
-  console.log(`[analyze] 开始 mode=${req.body?.mode || 'birth'} 并发=${inFlight}`)
+  // 引擎由请求决定：local 只用本地规则与工具，agent 才走模型 ReAct 循环
+  const engine=req.body?.engine==='local' ? 'local' : 'agent'
+  console.log(`[analyze] 开始 engine=${engine} mode=${req.body?.mode || 'birth'} 并发=${inFlight}`)
   try {
-    const payload=await analyze(req.body,await getConfig())
+    const payload=await analyze(req.body,await getConfig(),completion,{engine})
     res.json(payload)
-    console.log(`[analyze] 完成 结果=${payload.mode} 耗时=${Date.now()-startedAt}ms${payload.fallback ? ` 回退原因=${payload.fallback.reason}` : ''}`)
+    console.log(`[analyze] 完成 engine=${payload.engine || engine} 报告=${payload.mode} 耗时=${Date.now()-startedAt}ms${payload.fallback ? ` ${payload.fallback.kind === 'no-key' ? '未配置密钥' : '回退原因'}：${payload.fallback.reason}` : ''}`)
   } finally {inFlight-=1}
 })
 app.use('/api',(_req,res)=>res.status(404).json({error:'接口不存在'}))
