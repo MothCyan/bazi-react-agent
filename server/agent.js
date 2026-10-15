@@ -1,6 +1,10 @@
 import { buildChart } from './chart.js'
 import { findMatches } from './celebrities.js'
 import { completion } from './config.js'
+import { withDeadline } from './deadline.js'
+
+/** 整次分析的硬上限：即使模型端点挂起，也不会把请求与互斥锁占住几分钟 */
+export const ANALYZE_DEADLINE_MS = Number(process.env.BAZI_ANALYZE_DEADLINE_MS || 90000)
 
 export const knowledge = {
   五行:'五行相生为木生火、火生土、土生金、金生水、水生木；相克为木克土、土克水、水克火、火克金、金克木。数量不等同旺衰，不能按缺什么就补什么。',
@@ -16,17 +20,29 @@ const tools = [
 function demoReport(chart,matches) {
   return `## 命盘概览\n你的日主为 **${chart.dayMaster}**，四柱为 **${chart.pillars.map(p=>p.gan+p.zhi).join(' · ')}**。\n\n## 五行与十神\n表层八字计数：${Object.entries(chart.elements).map(([k,v])=>`${k} ${v}`).join('、')}。此统计没有月令和藏干权重，不能直接判断身强身弱或喜用神。\n\n${knowledge.十神}\n\n## 名人参照\n${matches.length ? `本地数据库找到 ${matches.length} 位至少有一柱对应相同的人物。最高匹配 ${matches[0].matchCount} 柱：${matches[0].name}。` : '本地小型数据库未找到对应柱相同的人物，这不代表世界上不存在。'}所有种子人物的时辰均未核实，因此本次没有可确认的四柱完全匹配。\n\n## 阅读建议\n${knowledge.月令}\n\n当前为**无需 LLM 的规则演示模式**。配置支持工具调用的模型后，可以运行完整 ReAct 循环，结合工具结果生成分析。传统命理仅供文化学习与娱乐，不是科学预测，不应用于医疗、投资或重大人生决定。`
 }
-export async function analyze(input,config,requestCompletion=completion) {
+function demoPayload(chart,matches) {
+  const trace=[]
+  for(const [tool,summary] of [['calculate_bazi',chart.pillars.map(p=>p.gan+p.zhi).join(' / ')],['search_celebrities',`找到 ${matches.length} 位部分匹配人物，完整匹配 0 位`],['lookup_knowledge','已读取月令、十神与匹配边界']]) { trace.push({type:'action',tool,summary:'执行本地规则工具'},{type:'observation',tool,summary}) }
+  trace.push({type:'final',summary:'规则报告已生成；配置 LLM 后启用自主工具选择'})
+  return {chart,matches,trace,report:demoReport(chart,matches),mode:'demo'}
+}
+
+export async function analyze(input,config,requestCompletion=completion,options={}) {
   const chart = buildChart(input), matches=findMatches(chart), trace=[]
   if (!config.apiKey && !/localhost|127\.0\.0\.1|\[::1\]/.test(new URL(config.baseUrl).hostname)) {
-    for(const [tool,summary] of [['calculate_bazi',chart.pillars.map(p=>p.gan+p.zhi).join(' / ')],['search_celebrities',`找到 ${matches.length} 位部分匹配人物，完整匹配 0 位`],['lookup_knowledge','已读取月令、十神与匹配边界']]) { trace.push({type:'action',tool,summary:'执行本地规则工具'},{type:'observation',tool,summary}) }
-    trace.push({type:'final',summary:'规则报告已生成；配置 LLM 后启用自主工具选择'})
-    return {chart,matches,trace,report:demoReport(chart,matches),mode:'demo'}
+    return demoPayload(chart,matches)
   }
+  const deadline=options.deadlineMs ?? ANALYZE_DEADLINE_MS
+  const startedAt=Date.now()
+  try {
   const messages=[{role:'system',content:'你是八字传统文化研究助手，运行工具驱动的 ReAct Agent。先调用 calculate_bazi 和 search_celebrities，按需调用 lookup_knowledge，再根据观察结果输出中文 Markdown 报告。不要输出隐藏推理，只输出最终报告和简短结论。不要编造四柱、名人或时辰。不把部分匹配称为相同八字。解释计数不是旺衰，不做确定性命运预测或医疗投资建议。报告包含命盘、五行十神、方法局限和名人匹配，标明文化娱乐用途。工具调用不得修改用户输入。'}, {role:'user',content:JSON.stringify(input)}]
   const seen=new Set()
   for(let step=0;step<config.maxSteps;step++) {
-    const message=await requestCompletion(config,messages,{tools,tool_choice:step===config.maxSteps-1 ? 'none' : 'auto'})
+    const left=deadline-(Date.now()-startedAt)
+    if(left<=0) throw new Error(`分析已超过 ${Math.round(deadline/1000)} 秒上限（模型响应过慢或接口异常）`)
+    // 剩余预算也约束单次调用，避免底层连接挂起时无限等待
+    const message=await withDeadline(Promise.resolve(requestCompletion(config,messages,{tools,tool_choice:step===config.maxSteps-1 ? 'none' : 'auto',deadlineMs:left})),left,'模型接口长时间未响应，请检查 Base URL 与网络')
+    if(!message) throw new Error('模型接口未返回内容')
     if (!message.tool_calls?.length) {
       if (!seen.has('calculate_bazi') || !seen.has('search_celebrities')) {
         messages.push({role:'assistant',content:message.content || ''},{role:'user',content:'请先调用 calculate_bazi 和 search_celebrities 获得事实后再完成报告。'})
@@ -56,4 +72,16 @@ export async function analyze(input,config,requestCompletion=completion) {
     }
   }
   throw new Error('Agent 达到最大轮数仍未完成，请增加步数或使用支持 tools 的模型')
+  } catch(error) {
+    // 模型不可用（超时 / 鉴权失败 / 不支持 tools）时不能让整站卡死：如实说明并回退规则报告
+    const reason=error?.message || '未知错误'
+    const fallback=demoPayload(chart,matches)
+    return {
+      chart,matches,
+      trace:[...trace,{type:'observation',tool:'llm_fallback',summary:`模型调用失败，已改用本地规则报告：${reason}`},...fallback.trace],
+      report:fallback.report,
+      mode:'demo',
+      fallback:{reason},
+    }
+  }
 }

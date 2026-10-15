@@ -138,17 +138,46 @@ test('未知工具被拒绝且不计入已执行工具', async () => {
   assert.ok(rejected.content.includes('未知工具'))
 })
 
-test('达到最大轮数仍未完成时抛出错误', async () => {
+test('超过最大轮数时回退规则报告并说明原因', async () => {
   const completion = scriptedCompletion([{ tool_calls: [openaiToolCall('calculate_bazi')] }])
-  await assert.rejects(() => analyze(input, { ...baseConfig, maxSteps: 3 }, completion), /最大轮数/)
+  const result = await analyze(input, { ...baseConfig, maxSteps: 3 }, completion)
+  assert.equal(result.mode, 'demo')
+  assert.match(result.fallback.reason, /最大轮数/)
+  assert.ok(result.trace.some((item) => item.tool === 'llm_fallback'))
+  assert.match(result.report, /规则演示模式/)
 })
 
-test('模型返回空报告时抛出错误', async () => {
+test('模型返回空报告时同样回退规则报告', async () => {
   const completion = scriptedCompletion([
     { tool_calls: [openaiToolCall('calculate_bazi'), openaiToolCall('search_celebrities')] },
     { role: 'assistant', content: '   ' },
   ])
-  await assert.rejects(() => analyze(input, baseConfig, completion), /未返回报告内容/)
+  const result = await analyze(input, baseConfig, completion)
+  assert.equal(result.mode, 'demo')
+  assert.match(result.fallback.reason, /未返回报告内容/)
+})
+
+test('模型接口一直不响应时受总时长上限约束并回退', async () => {
+  const startedAt = Date.now()
+  const result = await analyze(input, baseConfig, () => new Promise(() => {}), { deadlineMs: 300 })
+  assert.ok(Date.now() - startedAt < 5000, '不应长时间挂起')
+  assert.equal(result.mode, 'demo')
+  assert.match(result.fallback.reason, /未响应|上限/)
+  assert.ok(result.trace.some((item) => item.tool === 'llm_fallback'))
+  assert.deepEqual(
+    result.chart.pillars.map((pillar) => pillar.gan + pillar.zhi),
+    ['庚午', '辛巳', '乙酉', '辛巳'],
+  )
+})
+
+test('模型接口报错时回退规则报告并保留失败原因', async () => {
+  const result = await analyze(input, baseConfig, async () => {
+    throw new Error('模型接口返回 HTTP 401，请检查地址、模型、密钥与 tools 支持情况')
+  })
+  assert.equal(result.mode, 'demo')
+  assert.match(result.fallback.reason, /HTTP 401/)
+  assert.match(result.report, /规则演示模式/)
+  assert.equal(result.matches.length > 0, true)
 })
 
 test('未配置密钥时使用规则演示模式，不访问外部接口', async () => {

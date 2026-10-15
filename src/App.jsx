@@ -404,7 +404,7 @@ function LoadingPanel() {
           <CircleDot size={15} /> 生成 Markdown 分析报告
         </li>
       </ol>
-      <p className="hint">未配置模型时使用规则报告；配置支持 tools 的模型后会进行多轮工具调用，耗时取决于模型速度。</p>
+      <p className="hint">未配置模型时使用规则报告；配置支持 tools 的模型后会进行多轮工具调用。模型响应过慢或不可用时最多等待约 90 秒，超时会自动回退到规则报告。</p>
     </section>
   )
 }
@@ -472,6 +472,12 @@ function ResultView({ result }) {
 
   return (
     <div className="results">
+      {result.fallback && (
+        <div className="alert alert-soft" role="status">
+          <AlertTriangle size={17} />
+          <span>模型调用失败，已回退到本地规则报告：{result.fallback.reason}</span>
+        </div>
+      )}
       <section className="card">
         <header className="card-head">
           <h2>

@@ -67,6 +67,51 @@ test('未配置密钥时分析走规则演示模式', async () => {
   assert.ok(Array.isArray(data.trace) && data.trace.length > 0)
 })
 
+test('并发分析不会被错误地串行阻塞', async () => {
+  const [first, second] = await Promise.all([
+    post('/api/analyze', { mode: 'birth', date: '1990-05-20', time: '10:00' }),
+    post('/api/analyze', { mode: 'birth', date: '1980-09-12', time: '12:00' }),
+  ])
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  const [a, b] = [await first.json(), await second.json()]
+  assert.equal(a.mode, 'demo')
+  assert.equal(b.mode, 'demo')
+  assert.notEqual(a.chart.solar, b.chart.solar)
+})
+
+test('模型端点不可用时接口回退规则报告而不是报错', async () => {
+  // 指向一个不会响应的本机端口：真实模型调用必然失败，应回退规则报告
+  await fetch(`${origin}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      baseUrl: 'http://127.0.0.1:9/v1',
+      model: 'unreachable',
+      apiKey: 'sk-test',
+      temperature: 0.6,
+      maxSteps: 2,
+    }),
+  })
+  const response = await post('/api/analyze', { mode: 'birth', date: '1990-05-20', time: '10:00' })
+  assert.equal(response.status, 200)
+  const data = await response.json()
+  assert.equal(data.mode, 'demo')
+  assert.ok(data.fallback && data.fallback.reason.length > 0)
+  assert.deepEqual(
+    data.chart.pillars.map((pillar) => pillar.gan + pillar.zhi),
+    ['庚午', '辛巳', '乙酉', '辛巳'],
+  )
+  assert.ok(data.trace.some((item) => item.tool === 'llm_fallback'))
+
+  // 恢复为无密钥状态，避免影响后续用例
+  await fetch(`${origin}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', temperature: 0.6, maxSteps: 5, clearKey: true }),
+  })
+})
+
 test('配置接口不回传密钥，密钥落盘在数据目录', async () => {
   const initial = await (await fetch(`${origin}/api/config`)).json()
   assert.equal(initial.hasKey, false)
